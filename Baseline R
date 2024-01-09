@@ -1,0 +1,185 @@
+---
+title: "Taylor Swift Phenomenon"
+author: "Valentina Gonzalez Navarro"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+In this presentation, we aim to conduct a comprehensive analysis of a curated dataset comprising Taylor Swift's songs, encompassing both albums and audio features. The data has been sourced from Genius and Spotify's audio API functionalities.
+
+## Setup
+```{r cars}
+library(tidyverse)
+library(taylor)
+library(ggplot2)
+library(DBI)
+
+
+
+taylor_album_songs <- read.csv("taylor_album_songs.csv", stringsAsFactors = FALSE)
+taylor_all_songs <- read.csv("taylor_all_songs.csv", stringsAsFactors = FALSE)
+taylor_albums <- read.csv("taylor_albums.csv", stringsAsFactors = FALSE)
+
+```
+## Data
+
+The decision to analyze Taylor Swift's song database arises from the intriguing question of what makes the music of this artist so exceptional and why her followers follow her with such devotion. Beyond her undeniable commercial success, Taylor Swift has managed to build an extraordinary bond with her fans, generating a loyalty phenomenon that goes beyond conventional norms in the music industry.
+
+This research aims to explore and unravel the elements that make Taylor Swift so special, whether through the lyrical depth of her songs, the evolution of her musical style over the years, or the emotional connection she establishes with her audience. The choice of this database is justified by the ability to complement information between individual songs and complete albums. By considering both aspects, we obtain a more holistic and 360-degree view of Taylor Swift's musical repertoire. Albums, as cohesive bodies of work, often tell a broader story, while individual songs can represent specific moments in the artist's artistic evolution. This combination allows us to explore the diversity and depth of her creativity, offering a comprehensive perspective on her contribution to the world of music.
+
+
+## Taylor's Version
+
+We want to analyze the differences between the original versions of the songs and the Taylor's Version.
+
+From this analysis, we can answer questions such as:
+
+*Are Taylor's versions more danceable?*
+*Do they sound happier? Are they more positive?*
+*Or is there not that much difference with their original versions?*
+
+```{r}
+
+taylor_version <- taylor_all_songs %>%
+  filter(grepl("\\(Taylor's Version\\)", album_name) |
+           album_name %in% c("Red", "1989", "Speak Now", "Fearless"))
+
+
+
+promedio_danceability_taylor <- mean(taylor_version$danceability[taylor_version$album_name %in% c("Red", "1989", "Speak now", "Fearless")], na.rm = TRUE)
+
+promedio_valence_taylor <- mean(taylor_version$valence[taylor_version$album_name %in% c("Red", "1989", "Speak now", "Fearless")], na.rm = TRUE)
+
+promedio_danceability_no_taylor <- mean(taylor_version$danceability[!grepl("\\(Taylor's Version\\)", taylor_version$album_name)], na.rm = TRUE)
+
+promedio_valence_no_taylor <- mean(taylor_version$valence[!grepl("\\(Taylor's Version\\)", taylor_version$album_name)], na.rm = TRUE)
+
+cat("Promedio de Danceability para álbumes con '(Taylor's Version)':", promedio_danceability_taylor, "\n")
+cat("Promedio de Danceability para álbumes sin '(Taylor's Version)':", promedio_danceability_no_taylor, "\n")
+
+cat("Promedio de Valence para álbumes con '(Taylor's Version)':", promedio_valence_taylor, "\n\n")
+cat("Promedio de Valence para álbumes sin '(Taylor's Version)':", promedio_valence_no_taylor, "\n")
+
+
+
+ggplot(taylor_version, aes(x = danceability, y = valence, color = grepl("\\(Taylor's Version\\)", album_name))) +
+  geom_point() +
+  labs(title = "Scatter Chart: Danceability and Valence",
+       x = "Danceability",
+       y = "Valence",
+       color = "(Taylor's Version)") +
+  scale_color_manual(values = c("FALSE" = "skyblue", "TRUE" = "lightcoral")) +
+  theme_minimal()
+```
+
+
+Taking into account the averages of Danceability and Valence, we observe that the difference between the original songs and Taylor's versions is not substantial. However, from the scatter plot, we identify a positive trend between Danceability and Valence, indicating a positive correlation between the two.
+
+
+
+
+## Music over time
+
+Another interesting question to ask ourselves is to see if with the passage of time Taylor's albums and songs became more danceable, or more happy.
+
+```{r}
+
+taylor_all_songs$album_release <- as.Date(taylor_all_songs$album_release)
+
+taylor_all_songs$fecha_formateada <- format(taylor_all_songs$album_release, "%Y %b")
+
+# Crear un gráfico de líneas para danceability
+
+ggplot(taylor_all_songs, aes(x = album_release, y = danceability, color = album_name)) +
+  geom_point() +
+  labs(title = "Evolution of Danceability over time",
+       x = "Date",
+       y = "Danceability",
+       color = "Album") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Ajustar el ángulo de las etiquetas en el eje x
+
+
+```
+
+We can say that Taylor's most danceable songs emerged around 2020, on the album "Lover."
+
+And we can also see that the album "Reputation" is the one for which all its songs have a great level of danceability.
+
+
+
+## SQL
+
+Using SQL we are going to do a count grouped by album to see how many songs each one has:
+
+
+```{r}
+
+
+query <- "
+  SELECT album_name, COUNT(track_name) as q_songs
+  FROM taylor_all_songs
+  GROUP BY album_name
+  ORDER BY 2 DESC
+"
+
+canciones <- sqldf::sqldf(query)
+
+print(canciones)
+
+```
+
+
+
+Now we are going to do a join with the album table to obtain the metacritic score for each one
+
+```{r}
+
+query <- "
+  SELECT distinct a.album_name, b.metacritic_score
+  FROM taylor_all_songs a
+  LEFT JOIN taylor_albums b USING(album_name)
+  ORDER BY 2 DESC
+"
+
+metacritic <- sqldf::sqldf(query)
+
+print(metacritic)
+
+```
+
+From this results we see that the ones with the best reviews are 1989 (Taylor's Version) and
+Red (Taylor's Version).
+
+
+Using a subquery we want to see which albums have more songs than the average number of songs per album. Let's see it in the following query:
+
+
+```{r}
+
+query <- "
+SELECT album_name, COUNT(track_number) as num_track
+FROM taylor_all_songs
+GROUP BY album_name
+HAVING COUNT(track_number) > (
+    SELECT AVG(num_track)
+    FROM (
+        SELECT COUNT(track_number) as num_track
+        FROM taylor_all_songs
+        GROUP BY album_name
+    ) as avg_track
+)
+ORDER BY 2 DESC    
+;
+"
+
+tracks <- sqldf::sqldf(query)
+
+print(tracks)
+
+```
